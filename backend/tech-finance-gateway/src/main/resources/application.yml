@@ -1,0 +1,42 @@
+server:
+  port: ${GATEWAY_PORT:8080}
+
+spring:
+  application:
+    name: tech-finance-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:}
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
+      routes:
+        - id: system
+          uri: lb://tech-finance-system
+          predicates:
+            - Path=/api/system/**
+          filters:
+            - StripPrefix=1
+        - id: workflow
+          uri: lb://tech-finance-workflow
+          predicates:
+            - Path=/api/workflow/**
+          filters:
+            - StripPrefix=1
+        - id: external
+          uri: lb://tech-finance-external
+          predicates:
+            - Path=/api/external/**
+          filters:
+            - StripPrefix=1
