@@ -147,3 +147,23 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# OS
+.DS_Store
+
+# Document binaries — keep locally, do not commit
+*.pdf
+*.PDF
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.odt
+*.ods
+*.odp
+
+# Allow requirement PDFs under project-docs
+!project-docs/**/*.pdf
+!project-docs/**/*.PDF

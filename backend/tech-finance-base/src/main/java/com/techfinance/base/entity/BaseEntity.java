@@ -12,11 +12,15 @@ import java.time.LocalDateTime;
 
 /**
  * 表公共字段，业务实体继承即可。
+ * <p>
+ * 系统表（tf_sys_*、批处理）主键用 {@code id}。
+ * 业务表（投向/贷款/认定）主键用表缩写+numb（如 {@code ct_numb}），
+ * 在子类上自行声明 {@code @TableId}，并视情况覆盖/忽略本类 {@code id}。
  */
 @Data
 public abstract class BaseEntity {
 
-    /** 主键（字符串） */
+    /** 主键（系统表）；业务表可作技术号或不用 */
     @TableId(type = IdType.ASSIGN_ID)
     private String id;
 
@@ -58,10 +62,10 @@ public abstract class BaseEntity {
 
     /** 删除标识：0 正常 / 1 删除 */
     @TableLogic
-    private Integer deleted;
+    private String deleted;
 
     /** 数据版本（乐观锁） */
     @Version
     @TableField(fill = FieldFill.INSERT)
-    private Integer version;
+    private String version;
 }

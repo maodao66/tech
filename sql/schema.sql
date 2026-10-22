@@ -1,20 +1,552 @@
 -- GoldenDB / MySQL 兼容
+-- 科技金融管理系统一期（CR262533）建表脚本
+-- 字段顺序：id → 本表业务字段 → 公共字段
+-- 系统表主键 id；业务表主键 表缩写+numb
+-- 活关联只存编码/*_numb；状态数字码值；尽量 varchar
+
 CREATE DATABASE IF NOT EXISTS tech_finance
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_general_ci;
 
 USE tech_finance;
 
--- 业务表后续再加；公共字段约定：
--- id            varchar(64)     主键
--- create_user   varchar(64)     创建人
--- update_user   varchar(64)     修改人
--- owner_user    varchar(64)     归属人
--- create_inst   varchar(64)     创建机构
--- update_inst   varchar(64)     修改机构
--- owner_inst    varchar(64)     归属机构
--- create_time   datetime        创建时间
--- update_time   datetime        修改时间
--- own_time      datetime        归属时间
--- deleted       tinyint         删除标识（0正常 / 1删除）
--- version       int             数据版本（乐观锁）
+-- 业务表主键缩写：ld贷款 lh经办人 ct认定任务 ctm映射 cf流水 ca附件 csl同步日志
+-- ii行业 iic行业变更 itn产业树 iir投向规则
+
+
+-- ========================= 公共 / 批处理（系统侧，主键 id） =========================
+
+CREATE TABLE IF NOT EXISTS tf_batch_job_log (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  job_code        varchar(64)   NOT NULL COMMENT '批处理编码：行业同步/贷款同步/任务生成/结果同步/机构用户同步等',
+  data_date       date          NOT NULL COMMENT '业务日期',
+  start_time      datetime      NOT NULL COMMENT '开始时间',
+  end_time        datetime      DEFAULT NULL COMMENT '结束时间',
+  status          varchar(16)   NOT NULL DEFAULT '0' COMMENT '状态：0运行中/1成功/2失败',
+  total_cnt       varchar(16)   NOT NULL DEFAULT '0' COMMENT '总笔数',
+  success_cnt     varchar(16)   NOT NULL DEFAULT '0' COMMENT '成功笔数',
+  fail_cnt        varchar(16)   NOT NULL DEFAULT '0' COMMENT '失败笔数',
+  message         varchar(1000) DEFAULT NULL COMMENT '执行说明',
+  checkpoint      varchar(256)  DEFAULT NULL COMMENT '断点续跑标记',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  KEY idx_batch_job (job_code, data_date)
+) COMMENT='日终批处理日志';
+
+-- ========================= 后管基础（系统表，主键 id） =========================
+
+CREATE TABLE IF NOT EXISTS tf_sys_org (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  org_code        varchar(64)   NOT NULL COMMENT '机构号',
+  org_name        varchar(256)  NOT NULL COMMENT '机构名称',
+  org_level       varchar(8)    NOT NULL COMMENT '机构层级：1总行/2一级分行/3二级分行/4支行',
+  parent_code     varchar(64)   DEFAULT NULL COMMENT '上级机构号',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1启用/0停用',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_org_code (org_code),
+  KEY idx_org_parent (parent_code)
+) COMMENT='机构（综管同步）';
+
+CREATE TABLE IF NOT EXISTS tf_sys_user (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  user_no         varchar(64)   NOT NULL COMMENT '行员号',
+  user_name       varchar(128)  NOT NULL COMMENT '姓名',
+  org_code        varchar(64)   DEFAULT NULL COMMENT '所属机构号（可空；初始化时可能尚未挂机构）',
+  mobile          varchar(32)   DEFAULT NULL COMMENT '手机号',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1启用/0停用',
+  last_login_time datetime      DEFAULT NULL COMMENT '最近登录时间',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_no (user_no),
+  KEY idx_user_org (org_code)
+) COMMENT='用户/行员';
+
+CREATE TABLE IF NOT EXISTS tf_sys_role (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  role_code       varchar(64)   NOT NULL COMMENT '角色编码',
+  role_name       varchar(128)  NOT NULL COMMENT '角色名称',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1启用/0停用',
+  remark          varchar(500)  DEFAULT NULL COMMENT '备注',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_role_code (role_code)
+) COMMENT='角色';
+
+CREATE TABLE IF NOT EXISTS tf_sys_perm (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  perm_code       varchar(64)   NOT NULL COMMENT '权限编码',
+  perm_name       varchar(128)  NOT NULL COMMENT '权限名称',
+  perm_type       varchar(16)   NOT NULL COMMENT '权限类型：1菜单/2按钮/3接口',
+  parent_id       varchar(64)   DEFAULT NULL COMMENT '父权限主键',
+  path            varchar(256)  DEFAULT NULL COMMENT '路由或接口路径',
+  sort_no         varchar(16)   NOT NULL DEFAULT '0' COMMENT '排序号',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_perm_code (perm_code),
+  KEY idx_perm_parent (parent_id)
+) COMMENT='权限/菜单';
+
+CREATE TABLE IF NOT EXISTS tf_sys_user_role (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  user_id         varchar(64)   NOT NULL COMMENT '用户主键',
+  role_id         varchar(64)   NOT NULL COMMENT '角色主键',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_role (user_id, role_id)
+) COMMENT='用户-角色关联';
+
+CREATE TABLE IF NOT EXISTS tf_sys_role_perm (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  role_id         varchar(64)   NOT NULL COMMENT '角色主键',
+  perm_id         varchar(64)   NOT NULL COMMENT '权限主键',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_role_perm (role_id, perm_id)
+) COMMENT='角色-权限关联';
+
+CREATE TABLE IF NOT EXISTS tf_sys_ops_flow (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  biz_type        varchar(64)   NOT NULL COMMENT '业务类型码：1投向规则/2产业节点/3用户/4角色/5权限',
+  biz_id          varchar(64)   NOT NULL COMMENT '业务主键',
+  action          varchar(32)   NOT NULL COMMENT '动作：1新增/2修改/3停用/4启用',
+  apply_user      varchar(64)   NOT NULL COMMENT '申请人',
+  apply_time      datetime      NOT NULL COMMENT '申请时间',
+  audit_user      varchar(64)   DEFAULT NULL COMMENT '审核人',
+  audit_time      datetime      DEFAULT NULL COMMENT '审核时间',
+  status          varchar(16)   NOT NULL DEFAULT '0' COMMENT '状态：0待审/1通过/2驳回',
+  before_json     mediumtext    COMMENT '变更前快照',
+  after_json      mediumtext    COMMENT '变更后快照',
+  opinion         varchar(500)  DEFAULT NULL COMMENT '审核意见',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  KEY idx_ops_biz (biz_type, biz_id),
+  KEY idx_ops_status (status)
+) COMMENT='后管敏感操作审核';
+
+CREATE TABLE IF NOT EXISTS tf_sys_audit_log (
+  id              varchar(64)   NOT NULL COMMENT '主键',
+  user_no         varchar(64)   DEFAULT NULL COMMENT '操作人行员号',
+  user_name       varchar(128)  DEFAULT NULL COMMENT '操作人姓名（审计留痕）',
+  org_code        varchar(64)   DEFAULT NULL COMMENT '操作人机构号',
+  module          varchar(64)   DEFAULT NULL COMMENT '模块',
+  action          varchar(64)   DEFAULT NULL COMMENT '动作',
+  biz_id          varchar(64)   DEFAULT NULL COMMENT '业务主键',
+  req_uri         varchar(256)  DEFAULT NULL COMMENT '请求地址',
+  req_ip          varchar(64)   DEFAULT NULL COMMENT '请求IP',
+  detail          varchar(2000) DEFAULT NULL COMMENT '操作摘要',
+  operate_time    datetime      NOT NULL COMMENT '操作时间',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (id),
+  KEY idx_audit_time (operate_time),
+  KEY idx_audit_user (user_no),
+  KEY idx_audit_module (module)
+) COMMENT='操作审计';
+
+-- ========================= 科技贷款认定（业务表，主键 *_numb） =========================
+
+CREATE TABLE IF NOT EXISTS tf_loan_detail (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  ld_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写ld+numb）',
+  loan_key        varchar(128)  NOT NULL COMMENT '贷款业务唯一键',
+  source_system   varchar(64)   NOT NULL COMMENT '源系统：信贷/票据/产数/国结等',
+  cust_no         varchar(64)   DEFAULT NULL COMMENT '客户号（无客户主数据；名称可放raw_json）',
+  account_no      varchar(64)   DEFAULT NULL COMMENT '账号',
+  iou_no          varchar(64)   DEFAULT NULL COMMENT '借据号',
+  industry_code   varchar(16)   DEFAULT NULL COMMENT '贷款投向行业代码（名称关联tf_ind_industry）',
+  branch_l1_code  varchar(64)   DEFAULT NULL COMMENT '一级分行号（名称关联tf_sys_org）',
+  branch_l2_code  varchar(64)   DEFAULT NULL COMMENT '二级分行号',
+  branch_sub_code varchar(64)   DEFAULT NULL COMMENT '支行号',
+  manager_no      varchar(64)   DEFAULT NULL COMMENT '主办客户经理编号（姓名关联tf_sys_user）',
+  loan_amt        varchar(32)   DEFAULT NULL COMMENT '贷款金额',
+  loan_bal        varchar(32)   DEFAULT NULL COMMENT '贷款余额',
+  currency        varchar(8)    DEFAULT NULL COMMENT '币种',
+  value_date      date          DEFAULT NULL COMMENT '起息日',
+  mature_date     date          DEFAULT NULL COMMENT '到期日',
+  data_date       date          NOT NULL COMMENT '数仓数据日期',
+  raw_json        mediumtext    COMMENT '原始行备份（可含客户名称等源端字段）',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (ld_numb),
+  UNIQUE KEY uk_loan_key (loan_key),
+  KEY idx_loan_data_date (data_date),
+  KEY idx_loan_manager (manager_no),
+  KEY idx_loan_industry (industry_code)
+) COMMENT='贷款明细（数仓日终同步）';
+
+CREATE TABLE IF NOT EXISTS tf_loan_handler (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  lh_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写lh+numb）',
+  branch_l1_code  varchar(64)   NOT NULL COMMENT '分行号（名称关联tf_sys_org）',
+  handler_l1_no   varchar(64)   NOT NULL COMMENT '分行经办人编号（姓名关联tf_sys_user）',
+  branch_sub_code varchar(64)   NOT NULL COMMENT '支行号',
+  handler_sub_no  varchar(64)   NOT NULL COMMENT '支行经办人编号',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1启用/0停用',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (lh_numb),
+  KEY idx_handler_l1 (branch_l1_code),
+  KEY idx_handler_sub (branch_sub_code)
+) COMMENT='机构经办人维护';
+
+CREATE TABLE IF NOT EXISTS tf_cert_task (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  ct_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写ct+numb）',
+  ld_numb         varchar(64)   NOT NULL COMMENT '贷款明细主键（关联ld_numb）',
+  loan_key        varchar(128)  NOT NULL COMMENT '贷款业务唯一键',
+  branch_l1_code  varchar(64)   DEFAULT NULL COMMENT '负责一级分行号',
+  handler_l1_no   varchar(64)   DEFAULT NULL COMMENT '一级分行经办人编号',
+  branch_l2_code  varchar(64)   DEFAULT NULL COMMENT '负责二级分行号',
+  handler_l2_no   varchar(64)   DEFAULT NULL COMMENT '二级分行经办人编号',
+  branch_sub_code varchar(64)   DEFAULT NULL COMMENT '负责支行号',
+  handler_sub_no  varchar(64)   DEFAULT NULL COMMENT '支行经办人编号=主办客户经理',
+  task_gen_date   date          NOT NULL COMMENT '待办任务生成日期',
+  task_status     varchar(32)   NOT NULL COMMENT '任务状态：0待认定/1已认定待审核/2审核退回/3已锁定/4调整申请中/5调整审核中/6调整审批中',
+  is_tech         varchar(8)    NOT NULL DEFAULT '0' COMMENT '是否科技投向：1是/0否',
+  modify_reason   varchar(500)  DEFAULT NULL COMMENT '改判理由',
+  process_date    date          DEFAULT NULL COMMENT '任务处理日期',
+  auditor         varchar(64)   DEFAULT NULL COMMENT '认定审核人',
+  audit_date      date          DEFAULT NULL COMMENT '认定审核日期',
+  adj_applicant   varchar(64)   DEFAULT NULL COMMENT '调整申请人',
+  adj_apply_date  date          DEFAULT NULL COMMENT '调整申请日期',
+  adj_auditor     varchar(64)   DEFAULT NULL COMMENT '调整审核人',
+  adj_audit_date  date          DEFAULT NULL COMMENT '调整审核日期',
+  adj_approver    varchar(64)   DEFAULT NULL COMMENT '调整审批人',
+  adj_approve_date date         DEFAULT NULL COMMENT '调整审批日期',
+  locked          varchar(8)    NOT NULL DEFAULT '0' COMMENT '是否锁定：0未锁定/1已锁定',
+  result_sync_flag varchar(16)  NOT NULL DEFAULT '0' COMMENT '结果同步标记：0待同步/1已同步/2失败',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (ct_numb),
+  UNIQUE KEY uk_task_loan (ld_numb),
+  KEY idx_task_status (task_status),
+  KEY idx_task_handler (handler_sub_no),
+  KEY idx_task_branch (branch_l1_code, branch_sub_code),
+  KEY idx_task_gen_date (task_gen_date)
+) COMMENT='科技贷款认定任务';
+
+CREATE TABLE IF NOT EXISTS tf_cert_task_map (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  ctm_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写ctm+numb）',
+  ct_numb         varchar(64)   NOT NULL COMMENT '认定任务主键（关联ct_numb）',
+  iir_numb        varchar(64)   DEFAULT NULL COMMENT '命中投向规则主键（关联iir_numb），可空',
+  category_itn_numb varchar(64) DEFAULT NULL COMMENT '门类节点主键（关联itn_numb）',
+  major_itn_numb  varchar(64)   DEFAULT NULL COMMENT '大类节点主键',
+  mid_itn_numb    varchar(64)   DEFAULT NULL COMMENT '中类节点主键',
+  minor_itn_numb  varchar(64)   DEFAULT NULL COMMENT '小类节点主键',
+  fine_itn_numb   varchar(64)   DEFAULT NULL COMMENT '细类节点主键',
+  product_itn_numb varchar(64)  DEFAULT NULL COMMENT '重点产品节点主键',
+  map_source      varchar(16)   NOT NULL DEFAULT '1' COMMENT '映射来源：1自动/2手工',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (ctm_numb),
+  KEY idx_map_task (ct_numb)
+) COMMENT='认定任务投向映射（可多条）';
+
+CREATE TABLE IF NOT EXISTS tf_cert_flow (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  cf_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写cf+numb）',
+  ct_numb         varchar(64)   NOT NULL COMMENT '认定任务主键（关联ct_numb）',
+  flow_type       varchar(32)   NOT NULL COMMENT '流水类型：1认定提交/2认定审核/3调整申请/4调整审核/5调整审批',
+  action          varchar(16)   NOT NULL COMMENT '动作：1提交/2通过/3驳回',
+  operator        varchar(64)   NOT NULL COMMENT '操作人',
+  operate_time    datetime      NOT NULL COMMENT '操作时间',
+  opinion         varchar(500)  DEFAULT NULL COMMENT '意见',
+  snapshot_json   mediumtext    COMMENT '当时投向/机构/人员名称快照（锁定或审批时写入）',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (cf_numb),
+  KEY idx_flow_task (ct_numb, operate_time)
+) COMMENT='认定/调整审批流水';
+
+CREATE TABLE IF NOT EXISTS tf_cert_attach (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  ca_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写ca+numb）',
+  ct_numb         varchar(64)   NOT NULL COMMENT '认定任务主键（关联ct_numb）',
+  file_name       varchar(256)  NOT NULL COMMENT '文件名',
+  file_type       varchar(32)   DEFAULT NULL COMMENT '文件类型',
+  file_url        varchar(512)  NOT NULL COMMENT '对象存储路径',
+  lake_sync_flag  varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据湖同步：0待同步/1已同步/2失败',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (ca_numb),
+  KEY idx_attach_task (ct_numb)
+) COMMENT='认定补充材料';
+
+CREATE TABLE IF NOT EXISTS tf_cert_sync_log (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  csl_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写csl+numb）',
+  data_date       date          NOT NULL COMMENT '同步批次日期',
+  ct_numb         varchar(64)   NOT NULL COMMENT '认定任务主键（关联ct_numb）',
+  loan_key        varchar(128)  NOT NULL COMMENT '贷款业务唯一键',
+  sync_type       varchar(16)   NOT NULL COMMENT '同步类型：1新增/2修改',
+  sync_status     varchar(16)   NOT NULL COMMENT '同步状态：1成功/0失败',
+  error_msg       varchar(1000) DEFAULT NULL COMMENT '失败原因',
+  file_name       varchar(256)  DEFAULT NULL COMMENT '下发文件名',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (csl_numb),
+  KEY idx_sync_date (data_date),
+  KEY idx_sync_task (ct_numb)
+) COMMENT='认定结果同步监管集市日志';
+
+-- ========================= 投向管理（业务表，主键 *_numb） =========================
+
+CREATE TABLE IF NOT EXISTS tf_ind_industry (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  ii_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写ii+numb）',
+  industry_code   varchar(16)   NOT NULL COMMENT '国民经济行业代码',
+  industry_name   varchar(450)  NOT NULL COMMENT '国民经济行业名称',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1有效/0已删除',
+  sync_date       date          DEFAULT NULL COMMENT '最近同步日期',
+  source_system   varchar(64)   DEFAULT NULL COMMENT '来源系统',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (ii_numb),
+  UNIQUE KEY uk_industry_code (industry_code),
+  KEY idx_industry_name (industry_name(64))
+) COMMENT='国民经济行业信息';
+
+CREATE TABLE IF NOT EXISTS tf_ind_industry_chg (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  iic_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写iic+numb）',
+  ii_numb         varchar(64)   NOT NULL COMMENT '关联行业表主键（关联ii_numb）',
+  before_code     varchar(16)   DEFAULT NULL COMMENT '变更前行业代码',
+  before_name     varchar(450)  DEFAULT NULL COMMENT '变更前行业名称（变更留痕）',
+  after_code      varchar(16)   DEFAULT NULL COMMENT '变更后行业代码',
+  after_name      varchar(450)  DEFAULT NULL COMMENT '变更后行业名称（变更留痕）',
+  change_type     varchar(16)   NOT NULL COMMENT '变更类型：1新增/2修改/3删除',
+  change_date     date          NOT NULL COMMENT '变更日期',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (iic_numb),
+  KEY idx_industry_numb (ii_numb),
+  KEY idx_change_date (change_date)
+) COMMENT='国民经济行业变更记录';
+
+CREATE TABLE IF NOT EXISTS tf_ind_tech_node (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  itn_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写itn+numb）',
+  parent_itn_numb varchar(64)   DEFAULT NULL COMMENT '父节点主键（关联itn_numb）',
+  node_level      varchar(8)    NOT NULL COMMENT '节点层级：1门类/2大类/3中类/4小类/5细类/6重点产品',
+  node_code       varchar(64)   DEFAULT NULL COMMENT '节点编码',
+  node_name       varchar(256)  NOT NULL COMMENT '节点名称',
+  major_code      varchar(64)   DEFAULT NULL COMMENT '大类代码（层级为2时使用）',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：1启用/0停用',
+  sort_no         varchar(16)   NOT NULL DEFAULT '0' COMMENT '排序号',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (itn_numb),
+  KEY idx_parent (parent_itn_numb),
+  KEY idx_level_status (node_level, status),
+  KEY idx_node_code (node_code)
+) COMMENT='科技金融产业树';
+
+CREATE TABLE IF NOT EXISTS tf_ind_invest_rule (
+  id              varchar(64)   DEFAULT NULL COMMENT '技术号（可选，非主键）',
+  iir_numb       varchar(64)   NOT NULL COMMENT '主键（表缩写iir+numb）',
+  industry_code   varchar(16)   NOT NULL COMMENT '国民经济行业代码（名称关联tf_ind_industry）',
+  category_itn_numb varchar(64) NOT NULL COMMENT '门类节点主键（关联itn_numb）',
+  major_itn_numb  varchar(64)   NOT NULL COMMENT '大类节点主键',
+  mid_itn_numb    varchar(64)   NOT NULL COMMENT '中类节点主键',
+  minor_itn_numb  varchar(64)   NOT NULL COMMENT '小类节点主键',
+  fine_itn_numb   varchar(64)   DEFAULT NULL COMMENT '细类节点主键',
+  product_itn_numb varchar(64)  DEFAULT NULL COMMENT '重点产品节点主键',
+  status          varchar(16)   NOT NULL DEFAULT '1' COMMENT '状态：0草稿/1待审/2生效/3停用',
+  effective_date  date          DEFAULT NULL COMMENT '生效日期',
+  create_user     varchar(64)   DEFAULT NULL COMMENT '创建人',
+  update_user     varchar(64)   DEFAULT NULL COMMENT '修改人',
+  owner_user      varchar(64)   DEFAULT NULL COMMENT '归属人',
+  create_inst     varchar(64)   DEFAULT NULL COMMENT '创建机构',
+  update_inst     varchar(64)   DEFAULT NULL COMMENT '修改机构',
+  owner_inst      varchar(64)   DEFAULT NULL COMMENT '归属机构',
+  create_time     datetime      DEFAULT NULL COMMENT '创建时间',
+  update_time     datetime      DEFAULT NULL COMMENT '修改时间',
+  own_time        datetime      DEFAULT NULL COMMENT '归属时间',
+  deleted         varchar(8)    NOT NULL DEFAULT '0' COMMENT '删除标识：0正常/1删除',
+  version         varchar(16)   NOT NULL DEFAULT '0' COMMENT '数据版本（乐观锁）',
+  PRIMARY KEY (iir_numb),
+  KEY idx_rule_industry (industry_code, status),
+  KEY idx_rule_category (category_itn_numb),
+  KEY idx_rule_status (status)
+) COMMENT='投向规则';

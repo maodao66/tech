@@ -16,10 +16,11 @@
 │       └── tech-finance-external-biz/
 ├── frontend/
 ├── sql/schema.sql
-├── docs/
+├── project-docs/                  # 项目文档（本目录）
 ├── .env.example
 └── README.md
 ```
+
 
 ## biz 分层
 

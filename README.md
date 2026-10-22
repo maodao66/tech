@@ -69,3 +69,7 @@ npm run dev
 ```
 
 网关默认：`http://127.0.0.1:8080`
+
+## 项目文档
+
+详见根目录 [`project-docs/`](./project-docs/)。

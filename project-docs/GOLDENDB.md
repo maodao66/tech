@@ -57,11 +57,16 @@ mysql -h127.0.0.1 -uroot -p < sql/schema.sql
 
 业务表后续补充：实体继承 `BaseEntity`；简单 CRUD 用 `BaseMapper`，复杂 SQL 写 MyBatis XML。
 
+主键约定：
+
+- **系统表**（`tf_sys_*`、批处理）：主键仍用 `id`（`BaseEntity`）
+- **业务表**（投向 / 贷款 / 认定）：主键用「表名缩写 + numb」（如 `ct_numb`），`id` 可选非主键；实体自行 `@TableId`
+
 公共字段：
 
 | 字段 | 列名 | 说明 |
 | --- | --- | --- |
-| id | id | varchar(64) 主键 |
+| id | id | varchar(64) 系统表主键；业务表可选技术号 |
 | createUser | create_user | 创建人 |
 | updateUser | update_user | 修改人 |
 | ownerUser | owner_user | 归属人 |
@@ -71,7 +76,7 @@ mysql -h127.0.0.1 -uroot -p < sql/schema.sql
 | createTime | create_time | 创建时间 |
 | updateTime | update_time | 修改时间 |
 | ownTime | own_time | 归属时间 |
-| deleted | deleted | 删除标识 |
-| version | version | 数据版本（乐观锁） |
+| deleted | deleted | 删除标识（varchar，0正常/1删除） |
+| version | version | 数据版本（varchar，乐观锁） |
 
 时间、版本由 `MybatisConfig` 自动填充；人员/机构字段由业务写入当前用户与机构。
